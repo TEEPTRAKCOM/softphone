@@ -1,0 +1,384 @@
+{
+  "name": "Softphone - Call Status & Recording",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "softphone/status",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-status",
+      "name": "Webhook - Call Status",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [250, 300],
+      "webhookId": "softphone-status"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "softphone/recording",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-recording",
+      "name": "Webhook - Recording Ready",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [250, 500],
+      "webhookId": "softphone-recording"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ========================================\n// PROCESS CALL STATUS\n// ========================================\nconst body = $input.first().json.body || $input.first().json;\n\n// Extract call details\nconst callSid = body.CallSid || '';\nconst callStatus = body.CallStatus || '';\nconst to = body.To || body.Called || '';\nconst from = body.From || body.Caller || '';\nconst duration = body.CallDuration || body.Duration || '0';\nconst direction = body.Direction || 'outbound-api';\nconst timestamp = new Date().toISOString();\n\n// Determine if we should log to Odoo\nconst shouldLog = ['completed', 'no-answer', 'busy', 'failed', 'canceled'].includes(callStatus);\n\n// Format duration\nconst durationSeconds = parseInt(duration) || 0;\nconst durationFormatted = `${Math.floor(durationSeconds / 60)}m ${durationSeconds % 60}s`;\n\n// Create log message\nlet statusEmoji = '📞';\nlet statusText = callStatus;\n\nswitch (callStatus) {\n  case 'completed':\n    statusEmoji = '✅';\n    statusText = 'Completed';\n    break;\n  case 'no-answer':\n    statusEmoji = '📵';\n    statusText = 'No Answer';\n    break;\n  case 'busy':\n    statusEmoji = '🔴';\n    statusText = 'Busy';\n    break;\n  case 'failed':\n    statusEmoji = '❌';\n    statusText = 'Failed';\n    break;\n  case 'canceled':\n    statusEmoji = '🚫';\n    statusText = 'Canceled';\n    break;\n  case 'ringing':\n    statusEmoji = '🔔';\n    statusText = 'Ringing';\n    break;\n  case 'in-progress':\n    statusEmoji = '📱';\n    statusText = 'In Progress';\n    break;\n}\n\nreturn {\n  json: {\n    callSid,\n    callStatus,\n    statusEmoji,\n    statusText,\n    to,\n    from,\n    duration: durationSeconds,\n    durationFormatted,\n    direction,\n    timestamp,\n    shouldLog,\n    rawBody: body\n  }\n};"
+      },
+      "id": "process-status",
+      "name": "Process Call Status",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [470, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ========================================\n// PROCESS RECORDING\n// ========================================\nconst body = $input.first().json.body || $input.first().json;\n\nconst recordingSid = body.RecordingSid || '';\nconst recordingUrl = body.RecordingUrl || '';\nconst recordingDuration = body.RecordingDuration || '0';\nconst callSid = body.CallSid || '';\n\nreturn {\n  json: {\n    recordingSid,\n    recordingUrl: recordingUrl ? `${recordingUrl}.mp3` : '',\n    recordingDuration: parseInt(recordingDuration) || 0,\n    callSid,\n    timestamp: new Date().toISOString()\n  }\n};"
+      },
+      "id": "process-recording",
+      "name": "Process Recording",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [470, 500]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition-log",
+              "leftValue": "={{ $json.shouldLog }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "if-should-log",
+      "name": "Should Log to Odoo?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [690, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://crm.teeptrak.net/web/session/authenticate",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\"jsonrpc\":\"2.0\",\"method\":\"call\",\"params\":{\"db\":\"teeptrak_prod\",\"login\":\"rav@teeptrak.com\",\"password\":\"YOUR_PASSWORD\"}}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          }
+        }
+      },
+      "id": "odoo-auth",
+      "name": "Odoo Auth",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [910, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\nconst cookies = response.headers['set-cookie'];\nlet sessionCookie = '';\n\nif (cookies && Array.isArray(cookies)) {\n  for (const cookie of cookies) {\n    if (cookie.startsWith('session_id=')) {\n      sessionCookie = cookie.split(';')[0];\n      break;\n    }\n  }\n}\n\n// Get call data from previous node\nconst callData = $('Process Call Status').first().json;\n\nreturn {\n  json: {\n    cookie: sessionCookie,\n    ...callData\n  }\n};"
+      },
+      "id": "extract-cookie",
+      "name": "Extract Cookie",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1130, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://crm.teeptrak.net/web/dataset/call_kw/crm.lead/search_read",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Cookie",
+              "value": "={{ $json.cookie }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"jsonrpc\":\"2.0\",\"method\":\"call\",\"params\":{\"model\":\"crm.lead\",\"method\":\"search_read\",\"args\":[],\"kwargs\":{\"domain\":[[\"|\", [\"phone_sanitized\",\"=\",\"{{ $json.to }}\"], [\"mobile\",\"ilike\",\"{{ $json.to.slice(-10) }}\"]]],\"fields\":[\"id\",\"name\",\"phone\",\"mobile\",\"user_id\"],\"limit\":1}}}",
+        "options": {}
+      },
+      "id": "find-lead",
+      "name": "Find Lead by Phone",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1350, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\nconst leads = response.result || [];\nconst callData = $('Extract Cookie').first().json;\n\nif (leads.length === 0) {\n  return {\n    json: {\n      leadFound: false,\n      ...callData\n    }\n  };\n}\n\nconst lead = leads[0];\n\nreturn {\n  json: {\n    leadFound: true,\n    leadId: lead.id,\n    leadName: lead.name,\n    ...callData\n  }\n};"
+      },
+      "id": "process-lead",
+      "name": "Process Lead Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1570, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition-lead",
+              "leftValue": "={{ $json.leadFound }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "if-lead-found",
+      "name": "Lead Found?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1790, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://crm.teeptrak.net/web/dataset/call_kw/mail.message/create",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Cookie",
+              "value": "={{ $json.cookie }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"jsonrpc\":\"2.0\",\"method\":\"call\",\"params\":{\"model\":\"mail.message\",\"method\":\"create\",\"args\":[{\"model\":\"crm.lead\",\"res_id\":{{ $json.leadId }},\"body\":\"<p>{{ $json.statusEmoji }} <strong>Softphone Call - {{ $json.statusText }}</strong></p><ul><li>📞 To: {{ $json.to }}</li><li>⏱️ Duration: {{ $json.durationFormatted }}</li><li>🕐 Time: {{ $json.timestamp }}</li></ul>\",\"message_type\":\"comment\",\"subtype_xmlid\":\"mail.mt_note\"}],\"kwargs\":{}}}",
+        "options": {}
+      },
+      "id": "log-to-odoo",
+      "name": "Log Call to Odoo",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2010, 100]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "OK",
+        "options": {}
+      },
+      "id": "respond-ok",
+      "name": "Respond OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [910, 400]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "OK",
+        "options": {}
+      },
+      "id": "respond-ok-2",
+      "name": "Respond OK 2",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [690, 500]
+    }
+  ],
+  "connections": {
+    "Webhook - Call Status": {
+      "main": [
+        [
+          {
+            "node": "Process Call Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook - Recording Ready": {
+      "main": [
+        [
+          {
+            "node": "Process Recording",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Call Status": {
+      "main": [
+        [
+          {
+            "node": "Should Log to Odoo?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Recording": {
+      "main": [
+        [
+          {
+            "node": "Respond OK 2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Should Log to Odoo?": {
+      "main": [
+        [
+          {
+            "node": "Odoo Auth",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Odoo Auth": {
+      "main": [
+        [
+          {
+            "node": "Extract Cookie",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Cookie": {
+      "main": [
+        [
+          {
+            "node": "Find Lead by Phone",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Lead by Phone": {
+      "main": [
+        [
+          {
+            "node": "Process Lead Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Lead Result": {
+      "main": [
+        [
+          {
+            "node": "Lead Found?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lead Found?": {
+      "main": [
+        [
+          {
+            "node": "Log Call to Odoo",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Call to Odoo": {
+      "main": [
+        [
+          {
+            "node": "Respond OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "TeepTrak"
+    },
+    {
+      "name": "Softphone"
+    }
+  ],
+  "triggerCount": 2,
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true
+  }
+}
