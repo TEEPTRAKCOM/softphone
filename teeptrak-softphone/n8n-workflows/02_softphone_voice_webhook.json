@@ -1,0 +1,91 @@
+{
+  "name": "Softphone - Voice Webhook (TwiML)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "softphone/voice",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-voice",
+      "name": "Webhook - Outbound Call",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [250, 300],
+      "webhookId": "softphone-voice"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ========================================\n// TWIML GENERATOR FOR OUTBOUND CALLS\n// ========================================\n// This generates TwiML to dial the prospect\n\n// Get the dialed number from request\nconst body = $input.first().json.body || $input.first().json;\nconst To = body.To || '';\nconst CallerId = body.CallerId || '';\nconst UserName = body.UserName || '';\nconst UserId = body.UserId || '';\n\n// CONFIGURATION - UPDATE THIS:\nconst CALLER_ID = '+1XXXXXXXXXX';  // Your Twilio phone number (E.164 format)\n\n// Validate phone number\nif (!To) {\n  return {\n    json: {\n      twiml: '<Response><Say>No phone number provided.</Say></Response>',\n      contentType: 'application/xml'\n    }\n  };\n}\n\n// Format phone number to E.164 if needed\nlet formattedTo = To;\nif (!To.startsWith('+')) {\n  // Assume US number if no country code\n  if (To.length === 10) {\n    formattedTo = '+1' + To;\n  } else if (To.length === 11 && To.startsWith('1')) {\n    formattedTo = '+' + To;\n  }\n}\n\n// Generate TwiML\nconst twiml = `<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<Response>\n  <Dial callerId=\"${CALLER_ID}\" record=\"record-from-answer\" recordingStatusCallback=\"https://n8n.teeptrak.com/webhook/softphone/recording\">\n    <Number>${formattedTo}</Number>\n  </Dial>\n</Response>`;\n\n// Log call initiation\nconsole.log(`📞 Outbound call: ${UserName} (${UserId}) → ${formattedTo}`);\n\nreturn {\n  json: {\n    twiml: twiml,\n    contentType: 'application/xml',\n    to: formattedTo,\n    from: CALLER_ID,\n    user: UserName\n  }\n};"
+      },
+      "id": "generate-twiml",
+      "name": "Generate TwiML",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [470, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.twiml }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/xml"
+              }
+            ]
+          }
+        }
+      },
+      "id": "respond-twiml",
+      "name": "Respond with TwiML",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [690, 300]
+    }
+  ],
+  "connections": {
+    "Webhook - Outbound Call": {
+      "main": [
+        [
+          {
+            "node": "Generate TwiML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate TwiML": {
+      "main": [
+        [
+          {
+            "node": "Respond with TwiML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "TeepTrak"
+    },
+    {
+      "name": "Softphone"
+    }
+  ],
+  "triggerCount": 1,
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true
+  }
+}
