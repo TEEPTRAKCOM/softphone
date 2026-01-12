@@ -1,4 +1,3 @@
-cat > api/token.js << 'EOF'
 const crypto = require('crypto');
 
 module.exports = function handler(req, res) {
@@ -27,7 +26,6 @@ module.exports = function handler(req, res) {
 
   const TOKEN_TTL = 3600;
   const now = Math.floor(Date.now() / 1000);
-
   const header = { alg: 'HS256', typ: 'JWT', cty: 'twilio-fpa;v=1' };
 
   const payload = {
@@ -62,4 +60,3 @@ module.exports = function handler(req, res) {
 
   res.status(200).json({ token, identity, userId, userName, expiresIn: TOKEN_TTL, success: true });
 };
-EOF
