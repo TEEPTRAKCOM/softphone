@@ -51,7 +51,7 @@ export default function Softphone({ device, isReady, user, onLogout }: Softphone
 
   // Call duration timer
   useEffect(() => {
-    let interval: NodeJS.Timeout;
+    let interval: ReturnType<typeof setTimeout>;
     
     if (callStatus === 'connected' && callStartTime) {
       interval = setInterval(() => {
